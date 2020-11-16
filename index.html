@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Курсовая работа по ВС</title>
+  </head>
+  <body>
+    <h1>Курсовая работа по «Методы моделирования вычислительных систем»</h1>
+    <form id="paramsForm">
+      <fieldset>
+        <legend>Параметры симуляции работы ВС</legend>
+        <span
+          >Примечание: если дано четкое время, а не диапазон времен, то
+          заполнять только Tmin</span
+        >
+        <fieldset>
+          <legend>Промежутки между приходами программ</legend>
+          <label>
+            <div>
+              T<sub>zmin</sub>, минимальное время между промежутками в секундах
+            </div>
+            <input type="number" id="Tzmin" />
+          </label>
+          <label>
+            <div>
+              T<sub>zmax</sub>, максимальное время между промежутками в секундах
+            </div>
+            <input type="number" id="Tzmax" />
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Время обработки одной программы сервером</legend>
+          <label>
+            <div>
+              T<sub>smin</sub>, минимальное время обработки одной программы в
+              секундах
+            </div>
+            <input type="number" id="Tsmin" />
+          </label>
+          <label>
+            <div>
+              T<sub>smax</sub>, максимальное время обработки одной программы в
+              секундах
+            </div>
+            <input type="number" id="Tsmax" />
+          </label>
+        </fieldset>
+        <label>
+          <div>Максимальное число программ в буфере</div>
+          <input type="number" id="bufferSize" />
+        </label>
+        <label>
+          <div>Время работы программы в секундах</div>
+          <input type="number" id="workTime" />
+        </label>
+        <button id="calculateButton">Рассчитать характеристики ВС</button>
+      </fieldset>
+    </form>
+    <fieldset>
+      <legend>Характеристики ВС</legend>
+      <div>
+        <span>P<sub>0</sub> (вероятность простоя ВС) - </span>
+        <span id="P0"></span>
+      </div>
+      <div>
+        <span
+          >P<sub>1</sub> (вероятность того, что ВС занята, но буффер пуст) -
+        </span>
+        <span id="P1"></span>
+      </div>
+      <div>
+        <span
+          >P<sub>2</sub> (вероятность того, что ВС занята, а в буффере 1
+          программа) -
+        </span>
+        <span id="P2"></span>
+      </div>
+      <div>
+        <span
+          >P<sub>3</sub> (вероятность того, что ВС занята, а в буффере 2
+          программа) -
+        </span>
+        <span id="P3"></span>
+      </div>
+      <div>
+        <span
+          >P<sub>4</sub> (вероятность того, что ВС занята, а в буффере 3
+          программа) -
+        </span>
+        <span id="P4"></span>
+      </div>
+      <div>
+        <span>Q (средняя доля программ, обработанных ВС) - </span>
+        <span id="Q"></span>
+      </div>
+      <div>
+        <span
+          >S (среднее число программ, обработанных за единицу времени) -
+        </span>
+        <span id="S"></span>
+      </div>
+      <div>
+        <span
+          >P<sub>отк</sub> (вероятность того, что программа будет не
+          обработанной) -
+        </span>
+        <span id="Potk"></span>
+      </div>
+      <div>
+        <span>N<sub>прог</sub> (среднее число программ в ВС) - </span>
+        <span id="Nprog"></span>
+      </div>
+      <div>
+        <span
+          >T<sub>прог</sub> (среднее время нахождение программы в ВС) -
+        </span>
+        <span id="Tprop"></span>
+      </div>
+      <div>
+        <span>N<sub>буф</sub> (среднее число программ в буфере) - </span>
+        <span id="Nbuf"></span>
+      </div>
+      <div>
+        <span
+          >T<sub>буф</sub> (среднее время нахождений программы в буфере) -
+        </span>
+        <span id="Tbuf"></span>
+      </div>
+    </fieldset>
+    <canvas id="myChart"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0"></script>
+    <script src="index.js"></script>
+  </body>
+</html>
