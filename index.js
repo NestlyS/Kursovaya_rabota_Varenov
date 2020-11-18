@@ -219,7 +219,7 @@ const Q = document.querySelector("#Q");
 const S = document.querySelector("#S");
 const Potk = document.querySelector("#Potk");
 const Nprog = document.querySelector("#Nprog");
-const Tprop = document.querySelector("#Tprop");
+const Tprog = document.querySelector("#Tprop");
 const Nbuf = document.querySelector("#Nbuf");
 const Tbuf = document.querySelector("#Tbuf");
 
@@ -243,14 +243,20 @@ paramsForm.addEventListener("submit", (event) => {
     TzmaxValue,
     maxTime,
     ({ Notk, Nsum, Nobr, P }) => {
-      P0.textContent = P[0];
-      P1.textContent = P[1];
-      P2.textContent = P[2];
-      P3.textContent = P[3];
-      P4.textContent = P[4];
-      Potk.textContent = Notk / Nsum;
-      Q.textContent = Nobr / Nsum;
-      S.textContent = Nobr / maxTime;
+      const sumTime = P[1] + P[2] + P[3] + P[4];
+      P0.textContent = `${+((P[0] / (sumTime + P[0])) * 100).toFixed(0)}%`;
+      P1.textContent = `${+((P[1] / (sumTime + P[0])) * 100).toFixed(0)}%`;
+      P2.textContent = `${+((P[2] / (sumTime + P[0])) * 100).toFixed(0)}%`;
+      P3.textContent = `${+((P[3] / (sumTime + P[0])) * 100).toFixed(0)}%`;
+      P4.textContent = `${+((P[4] / (sumTime + P[0])) * 100).toFixed(0)}%`;
+      Potk.textContent = `${+((Notk / Nsum) * 100).toFixed(0)}%`;
+      Q.textContent = `${+((Nobr / Nsum) * 100).toFixed(0)}%`;
+      S.textContent = `${+((Nobr / maxTime) * 100).toFixed(0)}%`;
+      const NbufVal = (1 * P[2] + 2 * P[3] + 3 * P[4]) / sumTime;
+      Nbuf.textContent = NbufVal;
+      const NprogVal = NbufVal + 1;
+      Nprog.textContent = NprogVal;
+      Tprog.textContent = ((TsminValue + TsmaxValue) / 2) * NprogVal;
     }
   );
 });
