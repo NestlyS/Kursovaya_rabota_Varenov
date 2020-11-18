@@ -1,3 +1,5 @@
+"use strict";
+
 const generateRandomizer = function (Tmin, Tmax) {
   /*
   const mathOjid = Tmin * 0.5 + Tmax * 0.5;
@@ -10,7 +12,7 @@ const generateRandomizer = function (Tmin, Tmax) {
     );
   };
   */
-  const a = 29;
+  const a = 37;
   const b = 1;
   const M = 1000;
   let x = 0;
@@ -32,6 +34,94 @@ const generateRandomTimeInterval = function (Tmin, Tmax = Tmin) {
     return +T.toFixed(3);
   };
 };
+/*
+const findLastItemWithCondition = (arrayA, arrayB, conditionOfFailure) => {
+  let indexOfLastProcessed = arrayA.length - 1;
+  // Идем по массиву с пришедшими числами с конца в начало
+  for (let i = arrayA.length - 1; i >= 0; i--) {
+    let elementWereNotDeclined = true;
+    // И проверяем, не равен ли текущий элемент какому-либо из элементов в таблице отказов
+    for (let j = 0; j < arrayB.length; j++) {
+      // Если данный элемент был отклонен, то он нас не интересует
+      if (conditionOfFailure(arrayA, arrayB)) {
+        elementWereNotDeclined = false;
+        break;
+      }
+    }
+    // Если не был отклонен, то сохраняем его индекс и выходим
+    if (elementWereNotDeclined) {
+      indexOfLastProcessed = i;
+      break;
+    }
+  }
+  // Если возвращается -1, то все элементы были отклонены
+  return indexOfLastProcessed;
+};
+*/
+
+const mainLogic = function ({
+  index,
+  TzArray,
+  TsArray,
+  Notk,
+  Nobr,
+  P,
+  progsInBuffer,
+  endOfProcessing,
+  successIdx,
+  maxBufferSize,
+}) {
+  const mlContinue = () => ({
+    Notk,
+    Nobr,
+    P,
+    progsInBuffer,
+    endOfProcessing,
+    successIdx,
+    maxBufferSize,
+  });
+  // Если ВС загружена другой программой
+  if (TzArray[index] < endOfProcessing) {
+    // То помещаем программу в буффер
+    // Но перед этим проверяем, есть ли место в буффере
+    if (progsInBuffer.length >= maxBufferSize) {
+      // Если нет, то отбрасываем программу
+      Notk += 1;
+      return mlContinue();
+    }
+    P[progsInBuffer.length + 1] += TzArray[index] - TzArray[successIdx];
+    progsInBuffer.push(TsArray[index]);
+    successIdx = index;
+    return mlContinue();
+  }
+  // Также не стоит забывать, что до исключения программы из буффера она тоже отработала
+  // некоторый промежуток времени, который будет не учтен при пересчете. Так что просчитаем
+  // его сейчас
+  P[progsInBuffer.length] += TzArray[index] - endOfProcessing;
+  P[progsInBuffer.length + 1] += endOfProcessing - TzArray[successIdx];
+  // Плюс отмечаем, что одна программа будет выполнена
+  Nobr += 1;
+  successIdx = index;
+  // Иначе ВС либо завершила работу прямо в этот промежуток времени, либо раньше
+  // Проверяем, пуст ли буффер
+  // Если нет, то это значит, что ВС уже загружена последней программой из буффера
+  // Освобождаем буффер в порядке очереди и одновременно добавляем текущую программу в буффер
+  // Если все программы успевают выполниться до прихода следующей программы, то идем дальше
+  let shouldContinue = false;
+  while (progsInBuffer.length > 0) {
+    endOfProcessing += progsInBuffer.shift();
+    if (TzArray[index] < endOfProcessing) {
+      progsInBuffer.push(TsArray[index]);
+      shouldContinue = true;
+      break;
+    }
+  }
+  if (shouldContinue) return mlContinue();
+  // Если и буффер пуст, значит ВС простаивает, так как обрабатывать ей нечего
+  // Просто загружаем программу в ВС
+  endOfProcessing = TsArray[index] + TzArray[index];
+  return mlContinue();
+};
 
 const calculate = function (
   maxBufferSize = 0,
@@ -39,7 +129,8 @@ const calculate = function (
   Tsmax = 0,
   Tzmin = 0,
   Tzmax = 0,
-  maxTime = 0
+  maxTime = 0,
+  callback = () => {} // Вызывается в конце каждой итерации обработки данных
 ) {
   // Время, когда ВС закончит обработку
   // В первый раз ВС свободна с самого начала
@@ -50,8 +141,12 @@ const calculate = function (
   // Счетчик того, сколько времени была загружена ВС
   // Первая ячейка соответствует P0, вторая - P1 и тд
   const P = [0, 0, 0, 0, 0];
-  // Количество необработанных программ
+  // Переменная для количества обработанных программ
+  let Nobr = -1;
+  // Переменная для количества необработанных программ
   let Notk = 0;
+  // Индекс последнего обработанной (не отклоненной) программы
+  let successIdx = 0;
 
   // Массив с временными отметками, когда приходит каждая из программ
   // Изначально содержит 0, так как событие включения сервера - тоже событие
@@ -66,45 +161,45 @@ const calculate = function (
     currentTime += TzRandomizer();
   }
   for (let i = 1; i < TzArray.length; i++) {
-    // Если ВС загружена другой программой
-    if (TzArray[i] < endOfProcessing) {
-      // То помещаем программу в буффер
-      // Но перед этим проверяем, есть ли место в буффере
-      if (progsInBuffer.length >= maxBufferSize) {
-        // Если нет, то отбрасываем программу
-        Notk += 1;
-        continue;
-      }
-      P[progsInBuffer.length + 1] += TzArray[i] - TzArray[i - 1];
-      progsInBuffer.push(TsArray[i]);
-      continue;
-    }
-    // Также не стоит забывать, что до исключения программы из буффера она тоже отработала
-    // некоторый промежуток времени, который будет не учтен при пересчете. Так что просчитаем
-    // его сейчас
-    P[progsInBuffer.length] += TzArray[i] - endOfProcessing;
-    P[progsInBuffer.length + 1] += endOfProcessing - TzArray[i - 1];
-    // Иначе ВС либо завершила работу прямо в этот промежуток времени, либо раньше
-    // Проверяем, пуст ли буффер
-    // Если нет, то это значит, что ВС уже загружена последней программой из буффера
-    // Освобождаем буффер в порядке очереди и одновременно добавляем текущую программу в буффер
-    // Если все программы успевают выполниться до прихода следующей программы, то идем дальше
-    let shouldContinue = false;
-    while (progsInBuffer.length > 0) {
-      endOfProcessing += progsInBuffer.shift();
-      if (TzArray[i] < endOfProcessing) {
-        progsInBuffer.push(TsArray[i]);
-        shouldContinue = true;
-        break;
-      }
-    }
-    if (shouldContinue) continue;
-    // Если и буффер пуст, значит ВС простаивает, так как обрабатывать ей нечего
-    // Просто загружаем программу в ВС
-    endOfProcessing = TsArray[i] + TzArray[i];
+    setTimeout(() => {
+      // Главная логика программы хранится в отдельной функции
+      const newData = mainLogic({
+        index: i,
+        TzArray,
+        TsArray,
+        Notk,
+        Nobr,
+        P,
+        progsInBuffer,
+        endOfProcessing,
+        successIdx,
+        maxBufferSize,
+      });
+      // Вытаскиваем обновленные данные из пришедшего объекта
+      // Массивы и объекты обновляются по ссылке, поэтому их не трогаем
+      Notk = newData.Notk;
+      Nobr = newData.Nobr;
+      endOfProcessing = newData.endOfProcessing;
+      maxBufferSize = newData.maxBufferSize;
+      successIdx = newData.successIdx;
+      callback({
+        Notk,
+        Nobr,
+        Nsum: TzArray.length,
+        P,
+      });
+    });
   }
-  P[progsInBuffer.length + 1] += endOfProcessing - TzArray[TzArray.length - 1];
-  debugger;
+  setTimeout(() => {
+    P[progsInBuffer.length + 1] += endOfProcessing - TzArray[successIdx];
+    Nobr += 1;
+    callback({
+      Notk,
+      Nobr,
+      P,
+      Nsum: TzArray.length,
+    });
+  });
 };
 
 const Tzmin = document.querySelector("#Tzmin");
@@ -129,6 +224,7 @@ const Nbuf = document.querySelector("#Nbuf");
 const Tbuf = document.querySelector("#Tbuf");
 
 paramsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
   const maxBufferSizeValue = Number(maxBufferSize.value) || 0;
   const maxTime = Number(workTime.value) || 0;
 
@@ -139,14 +235,23 @@ paramsForm.addEventListener("submit", (event) => {
   // Время между приходами программы
   const TzminValue = Number(Tzmin.value);
   const TzmaxValue = Number(Tzmax.value) || 0;
-  event.preventDefault();
   calculate(
     maxBufferSizeValue,
     TsminValue,
     TsmaxValue,
     TzminValue,
     TzmaxValue,
-    maxTime
+    maxTime,
+    ({ Notk, Nsum, Nobr, P }) => {
+      P0.textContent = P[0];
+      P1.textContent = P[1];
+      P2.textContent = P[2];
+      P3.textContent = P[3];
+      P4.textContent = P[4];
+      Potk.textContent = Notk / Nsum;
+      Q.textContent = Nobr / Nsum;
+      S.textContent = Nobr / maxTime;
+    }
   );
 });
 
