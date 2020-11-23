@@ -54,6 +54,37 @@
           <div>Время работы программы в секундах</div>
           <input id="workTime" />
         </label>
+        <fieldset>
+          <legend>
+            Желаемый тип распределения вероятностей, по которому будут
+            генерироваться значения
+          </legend>
+          <label style="display: inline-block">
+            <div>Экспоненциальное</div>
+            <input
+              type="radio"
+              id="exp"
+              name="randomType"
+              value="exponential"
+            />
+            <div>Частота:</div>
+            <input id="lambda" />
+          </label>
+          <label style="display: inline-block">
+            <div>Линейное</div>
+            <input type="radio" id="linear" name="randomType" value="linear" />
+          </label>
+          <label style="display: inline-block">
+            <div>При помощи датчика случайных значений</div>
+            <input
+              type="radio"
+              id="default"
+              name="randomType"
+              value="default"
+              checked
+            />
+          </label>
+        </fieldset>
         <button id="calculateButton">Рассчитать характеристики ВС</button>
       </fieldset>
     </form>

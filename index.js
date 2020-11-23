@@ -1,17 +1,6 @@
 "use strict";
 
-const generateRandomizer = function (Tmin, Tmax) {
-  /*
-  const mathOjid = Tmin * 0.5 + Tmax * 0.5;
-  const dispersia = Tmin ** 2 * 0.5 + Tmax ** 2 * 0.5 - mathOjid ** 2;
-  return (argX) => {
-    const x = argX || Math.random() * (Tmax - Tmin) + Tmin;
-    return (
-      (1 / (dispersia * Math.sqrt(2 * Math.PI))) *
-      Math.exp(-1 * ((x - mathOjid) ** 2 / (2 * dispersia * dispersia)))
-    );
-  };
-  */
+const defaultRandomizer = function* () {
   const a = 37;
   const b = 1;
   const M = 1000;
@@ -20,98 +9,132 @@ const generateRandomizer = function (Tmin, Tmax) {
     x = (a * x + b) % M;
     return x;
   };
-  return () => createNewX() / M;
+  while (true) {
+    yield createNewX() / M;
+  }
 };
 
-const generateRandomTimeInterval = function (Tmin, Tmax = Tmin) {
-  if (!Tmax || Tmax < Tmin) {
-    Tmax = Tmin;
+const linearRandomizer = function* () {
+  while (true) {
+    yield Math.random();
   }
-  const randomizer = generateRandomizer(Tmin, Tmax);
-  return () => {
-    const X = randomizer();
-    const T = (Tmax - Tmin) * X + Tmin;
-    return +T.toFixed(3);
-  };
 };
-/*
-const findLastItemWithCondition = (arrayA, arrayB, conditionOfFailure) => {
-  let indexOfLastProcessed = arrayA.length - 1;
-  // Идем по массиву с пришедшими числами с конца в начало
-  for (let i = arrayA.length - 1; i >= 0; i--) {
-    let elementWereNotDeclined = true;
-    // И проверяем, не равен ли текущий элемент какому-либо из элементов в таблице отказов
-    for (let j = 0; j < arrayB.length; j++) {
-      // Если данный элемент был отклонен, то он нас не интересует
-      if (conditionOfFailure(arrayA, arrayB)) {
-        elementWereNotDeclined = false;
-        break;
-      }
+
+const expRandomizer = function* (lambda) {
+  while (true) {
+    let random = Math.random();
+    // По данной ниже функции минимальный random, при котором х <= 1, равен указанному числу
+    // Если random будет меньше, итоговое значение функции будет больше 1, что не выгодно нам
+    if (random < 0.22313) {
+      random = 0.22313;
     }
-    // Если не был отклонен, то сохраняем его индекс и выходим
-    if (elementWereNotDeclined) {
-      indexOfLastProcessed = i;
-      break;
-    }
+    yield -1 * (1 / lambda) * Math.log(random);
   }
-  // Если возвращается -1, то все элементы были отклонены
-  return indexOfLastProcessed;
 };
-*/
+
+const generateRandomizer = function (type, { lambda }) {
+  switch (type) {
+    case "linear":
+      return linearRandomizer();
+    case "exponential":
+      return expRandomizer(lambda);
+    default:
+      return defaultRandomizer();
+  }
+};
+
+const randomTimeIntervalGenerator = function* (
+  Tmin,
+  Tmax = Tmin,
+  type,
+  { lambda } = {}
+) {
+  let _Tmin = Tmin;
+  let _Tmax = Tmax;
+  let _type = type;
+  // Если подан некорректный Tmin
+  if (!Tmin) {
+    _Tmin = 0;
+    _Tmax = 0;
+    _type = "default";
+  }
+  // Если не подан Tmax
+  if (!_Tmax || _Tmax < _Tmin) {
+    _Tmax = _Tmin;
+  }
+  const randomizer = generateRandomizer(_type, { lambda });
+  while (true) {
+    const X = randomizer.next().value;
+    const T = (_Tmax - _Tmin) * X + _Tmin;
+    yield +T.toFixed(3);
+  }
+};
 
 const mainLogic = function ({
-  index,
-  TzArray,
-  TsArray,
+  // Неизменяемые программно величины
+  currentTzValue,
+  currentTsValue,
+  maxBufferSize,
+  // Изменяемые программно величины
+  lastSuccessTzValue,
   Notk,
   Nobr,
   P,
   progsInBuffer,
   endOfProcessing,
-  successIdx,
-  maxBufferSize,
 }) {
+  // ФАЗА ИНИЦИАЛИЗАЦИИ
+
+  // Инкапсулируем логику работы программы от внешних воздействий
+  let _Notk = Notk;
+  let _Nobr = Nobr;
+  let _lastSuccessTzValue = lastSuccessTzValue;
+  let _endOfProcessing = endOfProcessing;
+  const _progsInBuffer = [...progsInBuffer];
+  const _P = [...P];
+  // А также стандартизируем возвращаемые из программы значения
   const mlContinue = () => ({
-    Notk,
-    Nobr,
-    P,
-    progsInBuffer,
-    endOfProcessing,
-    successIdx,
-    maxBufferSize,
+    Notk: _Notk,
+    Nobr: _Nobr,
+    P: _P,
+    progsInBuffer: _progsInBuffer,
+    endOfProcessing: _endOfProcessing,
+    lastSuccessTzValue: _lastSuccessTzValue,
   });
+  // ФАЗА ОБРАБОТКИ
+
   // Если ВС загружена другой программой
-  if (TzArray[index] < endOfProcessing) {
+  if (currentTzValue < _endOfProcessing) {
     // То помещаем программу в буффер
     // Но перед этим проверяем, есть ли место в буффере
-    if (progsInBuffer.length >= maxBufferSize) {
+    if (_progsInBuffer.length >= maxBufferSize) {
       // Если нет, то отбрасываем программу
-      Notk += 1;
+      _Notk += 1;
       return mlContinue();
     }
-    P[progsInBuffer.length + 1] += TzArray[index] - TzArray[successIdx];
-    progsInBuffer.push(TsArray[index]);
-    successIdx = index;
+    _P[_progsInBuffer.length + 1] += currentTzValue - _lastSuccessTzValue;
+    _progsInBuffer.push(currentTsValue);
+    _lastSuccessTzValue = currentTzValue;
     return mlContinue();
   }
   // Также не стоит забывать, что до исключения программы из буффера она тоже отработала
   // некоторый промежуток времени, который будет не учтен при пересчете. Так что просчитаем
   // его сейчас
-  P[progsInBuffer.length] += TzArray[index] - endOfProcessing;
-  P[progsInBuffer.length + 1] += endOfProcessing - TzArray[successIdx];
+  _P[_progsInBuffer.length] += currentTzValue - _endOfProcessing;
+  _P[_progsInBuffer.length + 1] += _endOfProcessing - _lastSuccessTzValue;
   // Плюс отмечаем, что одна программа будет выполнена
-  Nobr += 1;
-  successIdx = index;
+  _Nobr += 1;
+  _lastSuccessTzValue = currentTzValue;
   // Иначе ВС либо завершила работу прямо в этот промежуток времени, либо раньше
   // Проверяем, пуст ли буффер
   // Если нет, то это значит, что ВС уже загружена последней программой из буффера
   // Освобождаем буффер в порядке очереди и одновременно добавляем текущую программу в буффер
   // Если все программы успевают выполниться до прихода следующей программы, то идем дальше
   let shouldContinue = false;
-  while (progsInBuffer.length > 0) {
-    endOfProcessing += progsInBuffer.shift();
-    if (TzArray[index] < endOfProcessing) {
-      progsInBuffer.push(TsArray[index]);
+  while (_progsInBuffer.length > 0) {
+    _endOfProcessing += _progsInBuffer.shift();
+    if (currentTzValue < _endOfProcessing) {
+      _progsInBuffer.push(currentTsValue);
       shouldContinue = true;
       break;
     }
@@ -119,19 +142,23 @@ const mainLogic = function ({
   if (shouldContinue) return mlContinue();
   // Если и буффер пуст, значит ВС простаивает, так как обрабатывать ей нечего
   // Просто загружаем программу в ВС
-  endOfProcessing = TsArray[index] + TzArray[index];
+  _endOfProcessing = currentTsValue + currentTzValue;
   return mlContinue();
 };
 
-const calculate = function (
+const calculate = async function ({
   maxBufferSize = 0,
   Tsmin = 0,
   Tsmax = 0,
   Tzmin = 0,
   Tzmax = 0,
   maxTime = 0,
-  callback = () => {} // Вызывается в конце каждой итерации обработки данных
-) {
+  type = "default",
+  lambda = 0,
+  callback = () => {}, // Вызывается в конце каждой итерации обработки данных
+}) {
+  let mu = 0;
+  let lambd = 0;
   // Время, когда ВС закончит обработку
   // В первый раз ВС свободна с самого начала
   let endOfProcessing = 0;
@@ -140,64 +167,88 @@ const calculate = function (
   let progsInBuffer = [];
   // Счетчик того, сколько времени была загружена ВС
   // Первая ячейка соответствует P0, вторая - P1 и тд
-  const P = [0, 0, 0, 0, 0];
+  let P = [0, 0, 0, 0, 0];
   // Переменная для количества обработанных программ
   let Nobr = -1;
   // Переменная для количества необработанных программ
   let Notk = 0;
-  // Индекс последнего обработанной (не отклоненной) программы
-  let successIdx = 0;
+  // Число всего заявок для ВС
+  let Nsum = 0;
+  // Время последней обработанной (не отклоненной) программы
+  let lastSuccessTzValue = 0;
 
   // Массив с временными отметками, когда приходит каждая из программ
   // Изначально содержит 0, так как событие включения сервера - тоже событие
-  const TzArray = [0];
-  const TzRandomizer = generateRandomTimeInterval(Tzmin, Tzmax);
-  const TsArray = [0];
-  const TsRandomizer = generateRandomTimeInterval(Tsmin, Tsmax);
-  let currentTime = TzRandomizer();
+  //const TzArray = [0];
+  let currentTzValue = 0;
+  let TzSum = 0;
+  const TzRandomizer = randomTimeIntervalGenerator(Tzmin, Tzmax, type, {
+    lambda,
+  });
+  //const TsArray = [0];
+  let currentTsValue = 0;
+  let TsSum = 0;
+  const TsRandomizer = randomTimeIntervalGenerator(Tsmin, Tsmax, type, {
+    lambda,
+  });
+  let currentTime = TzRandomizer.next().value;
   while (currentTime < maxTime) {
-    TzArray.push(+currentTime.toFixed(3));
-    TsArray.push(+TsRandomizer().toFixed(3));
-    currentTime += TzRandomizer();
-  }
-  for (let i = 1; i < TzArray.length; i++) {
-    setTimeout(() => {
-      // Главная логика программы хранится в отдельной функции
-      const newData = mainLogic({
-        index: i,
-        TzArray,
-        TsArray,
-        Notk,
-        Nobr,
-        P,
-        progsInBuffer,
-        endOfProcessing,
-        successIdx,
-        maxBufferSize,
-      });
-      // Вытаскиваем обновленные данные из пришедшего объекта
-      // Массивы и объекты обновляются по ссылке, поэтому их не трогаем
-      Notk = newData.Notk;
-      Nobr = newData.Nobr;
-      endOfProcessing = newData.endOfProcessing;
-      maxBufferSize = newData.maxBufferSize;
-      successIdx = newData.successIdx;
-      callback({
-        Notk,
-        Nobr,
-        Nsum: TzArray.length,
-        P,
-      });
-    });
+    setTimeout(
+      ((_currentTime) => () => {
+        // TzArray.push(+_currentTime.toFixed(3));
+        currentTzValue = +_currentTime.toFixed(3);
+        TzSum += currentTzValue;
+        // TsArray.push(+TsRandomizer.next().value.toFixed(3));
+        currentTsValue = +TsRandomizer.next().value.toFixed(3);
+        TsSum += currentTsValue;
+        // Фиксируем приход ещё одной программы
+        Nsum += 1;
+        // Главная логика программы хранится в отдельной функции
+        const newData = mainLogic({
+          currentTzValue,
+          currentTsValue,
+          maxBufferSize,
+          lastSuccessTzValue,
+          Notk,
+          Nobr,
+          P,
+          progsInBuffer,
+          endOfProcessing,
+        });
+        // Вытаскиваем обновленные данные из пришедшего объекта
+        // Массивы и объекты обновляются по ссылке, поэтому их не трогаем
+        Notk = newData.Notk;
+        Nobr = newData.Nobr;
+        endOfProcessing = newData.endOfProcessing;
+        progsInBuffer = newData.progsInBuffer;
+        lastSuccessTzValue = newData.lastSuccessTzValue;
+        P = newData.P;
+        mu = Nsum / TsSum; // Интенсивность обработки заявок ВС
+        lambd = Nsum / TzSum; // Интенсивность поступления заявок
+        // Вызываем функцию, чтобы обновить интерфейс
+        callback({
+          Notk,
+          Nobr,
+          Nsum,
+          mu,
+          lambd,
+          P,
+        });
+      })(currentTime)
+    );
+    currentTime += TzRandomizer.next().value;
   }
   setTimeout(() => {
-    P[progsInBuffer.length + 1] += endOfProcessing - TzArray[successIdx];
+    P[progsInBuffer.length + 1] += endOfProcessing - lastSuccessTzValue;
     Nobr += 1;
+    Notk += progsInBuffer.length;
     callback({
       Notk,
       Nobr,
       P,
-      Nsum: TzArray.length,
+      mu,
+      lambd,
+      Nsum,
     });
   });
 };
@@ -222,6 +273,10 @@ const Nprog = document.querySelector("#Nprog");
 const Tprog = document.querySelector("#Tprop");
 const Nbuf = document.querySelector("#Nbuf");
 const Tbuf = document.querySelector("#Tbuf");
+const radioExp = document.querySelector("#exp");
+const lambdaObj = document.querySelector("#lambda");
+const radioLinear = document.querySelector("#linear");
+const radioDefault = document.querySelector("#default");
 
 paramsForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -235,52 +290,44 @@ paramsForm.addEventListener("submit", (event) => {
   // Время между приходами программы
   const TzminValue = Number(Tzmin.value);
   const TzmaxValue = Number(Tzmax.value) || 0;
-  calculate(
-    maxBufferSizeValue,
-    TsminValue,
-    TsmaxValue,
-    TzminValue,
-    TzmaxValue,
+
+  // Тип генерации случайных величин
+  let type, lambda;
+  if (radioExp.checked) {
+    type = radioExp.value;
+    lambda = Number(lambdaObj.value) || 0;
+  }
+  if (radioLinear.checked) {
+    type = radioLinear.value;
+  }
+  if (radioDefault.checked) {
+    type = radioDefault.value;
+  }
+  calculate({
+    maxBufferSize: maxBufferSizeValue,
+    Tsmin: TsminValue,
+    Tsmax: TsmaxValue,
+    Tzmin: TzminValue,
+    Tzmax: TzmaxValue,
     maxTime,
-    ({ Notk, Nsum, Nobr, P }) => {
-      const sumTime = P[1] + P[2] + P[3] + P[4];
-      P0.textContent = `${+((P[0] / (sumTime + P[0])) * 100).toFixed(0)}%`;
-      P1.textContent = `${+((P[1] / (sumTime + P[0])) * 100).toFixed(0)}%`;
-      P2.textContent = `${+((P[2] / (sumTime + P[0])) * 100).toFixed(0)}%`;
-      P3.textContent = `${+((P[3] / (sumTime + P[0])) * 100).toFixed(0)}%`;
-      P4.textContent = `${+((P[4] / (sumTime + P[0])) * 100).toFixed(0)}%`;
-      Potk.textContent = `${+((Notk / Nsum) * 100).toFixed(0)}%`;
-      Q.textContent = `${+((Nobr / Nsum) * 100).toFixed(0)}%`;
-      S.textContent = `${+((Nobr / maxTime) * 100).toFixed(0)}%`;
-      const NbufVal = (1 * P[2] + 2 * P[3] + 3 * P[4]) / sumTime;
+    type,
+    lambda,
+    callback: ({ Notk, Nsum, Nobr, mu, lambd, P }) => {
+      const sumTime = P[1] + P[2] + P[3] + P[4] + P[0];
+      P0.textContent = `${+((P[0] / sumTime) * 100).toFixed(2)}%`;
+      P1.textContent = `${+((P[1] / sumTime) * 100).toFixed(2)}%`;
+      P2.textContent = `${+((P[2] / sumTime) * 100).toFixed(2)}%`;
+      P3.textContent = `${+((P[3] / sumTime) * 100).toFixed(2)}%`;
+      P4.textContent = `${+((P[4] / sumTime) * 100).toFixed(2)}%`;
+      Potk.textContent = `${+((Notk / Nsum) * 100).toFixed(2)}%`;
+      const Qvalue = (Nobr / Nsum) * 100;
+      Q.textContent = `${+Qvalue.toFixed(2)}%`;
+      S.textContent = +(Nobr / maxTime).toFixed(2);
+      const NbufVal = (1 * P[2] + 2 * P[3] + 3 * P[4]) / (sumTime - P[0]);
       Nbuf.textContent = NbufVal;
-      const NprogVal = NbufVal + 1;
-      Nprog.textContent = NprogVal;
-      Tprog.textContent = ((TsminValue + TsmaxValue) / 2) * NprogVal;
-    }
-  );
+      Nprog.textContent = NbufVal + 1;
+      Tprog.textContent = (Qvalue / mu + NbufVal / lambd) / sumTime;
+      Tbuf.textContent = NbufVal / lambd / sumTime;
+    },
+  });
 });
-
-/*
-var ctx = document.getElementById("myChart").getContext("2d");
-var chart = new Chart(ctx, {
-  // The type of chart we want to create
-  type: "bar",
-
-  // The data for our dataset
-  data: {
-    labels: label,
-    datasets: [
-      {
-        label: "My First dataset",
-        backgroundColor: "rgb(255, 99, 132)",
-        borderColor: "rgb(255, 99, 132)",
-        data: data,
-      },
-    ],
-  },
-
-  // Configuration options go here
-  options: {},
-});
-*/
