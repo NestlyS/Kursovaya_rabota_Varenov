@@ -22,13 +22,7 @@ const linearRandomizer = function* () {
 
 const expRandomizer = function* (lambda) {
   while (true) {
-    let random = Math.random();
-    // По данной ниже функции минимальный random, при котором х <= 1, равен указанному числу
-    // Если random будет меньше, итоговое значение функции будет больше 1, что не выгодно нам
-    if (random < 0.22313) {
-      random = 0.22313;
-    }
-    yield -1 * (1 / lambda) * Math.log(random);
+    yield -1 * (1 / lambda) * Math.log(Math.random());
   }
 };
 
@@ -64,9 +58,13 @@ const randomTimeIntervalGenerator = function* (
   }
   const randomizer = generateRandomizer(_type, { lambda });
   while (true) {
-    const X = randomizer.next().value;
-    const T = (_Tmax - _Tmin) * X + _Tmin;
-    yield +T.toFixed(3);
+    if (type === "exponential") {
+      yield +randomizer.next().value.toFixed(3);
+    } else {
+      const X = randomizer.next().value;
+      const T = (_Tmax - _Tmin) * X + _Tmin;
+      yield +T.toFixed(3);
+    }
   }
 };
 
@@ -120,9 +118,8 @@ const mainLogic = function ({
   // Также не стоит забывать, что до исключения программы из буффера она тоже отработала
   // некоторый промежуток времени, который будет не учтен при пересчете. Так что просчитаем
   // его сейчас
-  _P[_progsInBuffer.length] += currentTzValue - _endOfProcessing;
   _P[_progsInBuffer.length + 1] += _endOfProcessing - _lastSuccessTzValue;
-  // Плюс отмечаем, что одна программа будет выполнена
+  // Плюс отмечаем, что одна программа уже точно выполнена
   _Nobr += 1;
   _lastSuccessTzValue = currentTzValue;
   // Иначе ВС либо завершила работу прямо в этот промежуток времени, либо раньше
@@ -132,16 +129,24 @@ const mainLogic = function ({
   // Если все программы успевают выполниться до прихода следующей программы, то идем дальше
   let shouldContinue = false;
   while (_progsInBuffer.length > 0) {
+    let lastEndOfProcessing = _endOfProcessing;
     _endOfProcessing += _progsInBuffer.shift();
+    // Если буффер все таки не успел опустошиться полностью
     if (currentTzValue < _endOfProcessing) {
+      _P[_progsInBuffer.length + 1] += currentTzValue - lastEndOfProcessing;
       _progsInBuffer.push(currentTsValue);
       shouldContinue = true;
       break;
     }
+    // Одна программа была вытащена из буффера и выполнена перед приходом текущей программы
+    _Nobr += 1;
+    // А также считаем промежуток, который ВС находилась в состоянии выполнения программы
+    _P[_progsInBuffer.length + 1] += _endOfProcessing - lastEndOfProcessing;
   }
   if (shouldContinue) return mlContinue();
   // Если и буффер пуст, значит ВС простаивает, так как обрабатывать ей нечего
   // Просто загружаем программу в ВС
+  _P[_progsInBuffer.length] += currentTzValue - _endOfProcessing;
   _endOfProcessing = currentTsValue + currentTzValue;
   return mlContinue();
 };
@@ -154,11 +159,11 @@ const calculate = async function ({
   Tzmax = 0,
   maxTime = 0,
   type = "default",
-  lambda = 0,
+  lambda: _lambda = 0,
   callback = () => {}, // Вызывается в конце каждой итерации обработки данных
 }) {
+  let lambda = 0;
   let mu = 0;
-  let lambd = 0;
   // Время, когда ВС закончит обработку
   // В первый раз ВС свободна с самого начала
   let endOfProcessing = 0;
@@ -183,13 +188,14 @@ const calculate = async function ({
   let currentTzValue = 0;
   let TzSum = 0;
   const TzRandomizer = randomTimeIntervalGenerator(Tzmin, Tzmax, type, {
-    lambda,
+    lambda: _lambda,
   });
   //const TsArray = [0];
   let currentTsValue = 0;
   let TsSum = 0;
+  const _mu = 2 / (Tsmin + Tsmax);
   const TsRandomizer = randomTimeIntervalGenerator(Tsmin, Tsmax, type, {
-    lambda,
+    lambda: _mu,
   });
   let currentTime = TzRandomizer.next().value;
   while (currentTime < maxTime) {
@@ -197,7 +203,7 @@ const calculate = async function ({
       ((_currentTime) => () => {
         // TzArray.push(+_currentTime.toFixed(3));
         currentTzValue = +_currentTime.toFixed(3);
-        TzSum += currentTzValue;
+        TzSum = currentTzValue;
         // TsArray.push(+TsRandomizer.next().value.toFixed(3));
         currentTsValue = +TsRandomizer.next().value.toFixed(3);
         TsSum += currentTsValue;
@@ -224,14 +230,14 @@ const calculate = async function ({
         lastSuccessTzValue = newData.lastSuccessTzValue;
         P = newData.P;
         mu = Nsum / TsSum; // Интенсивность обработки заявок ВС
-        lambd = Nsum / TzSum; // Интенсивность поступления заявок
+        lambda = Nsum / TzSum; // Интенсивность поступления заявок
         // Вызываем функцию, чтобы обновить интерфейс
         callback({
           Notk,
           Nobr,
           Nsum,
           mu,
-          lambd,
+          lambda,
           P,
         });
       })(currentTime)
@@ -247,7 +253,7 @@ const calculate = async function ({
       Nobr,
       P,
       mu,
-      lambd,
+      lambda,
       Nsum,
     });
   });
@@ -277,6 +283,18 @@ const radioExp = document.querySelector("#exp");
 const lambdaObj = document.querySelector("#lambda");
 const radioLinear = document.querySelector("#linear");
 const radioDefault = document.querySelector("#default");
+
+document.body.addEventListener("click", (event) => {
+  if (radioExp.checked) {
+    Tzmin.setAttribute("disabled", true);
+    Tzmax.setAttribute("disabled", true);
+    lambdaObj.removeAttribute("disabled");
+  } else {
+    Tzmin.removeAttribute("disabled");
+    Tzmax.removeAttribute("disabled");
+    lambdaObj.setAttribute("disabled", true);
+  }
+});
 
 paramsForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -312,22 +330,25 @@ paramsForm.addEventListener("submit", (event) => {
     maxTime,
     type,
     lambda,
-    callback: ({ Notk, Nsum, Nobr, mu, lambd, P }) => {
+    callback: ({ Notk, Nsum, Nobr, mu, lambda, P }) => {
       const sumTime = P[1] + P[2] + P[3] + P[4] + P[0];
+      const Qvalue = Nobr / Nsum;
+      let NbufVal = 0;
+      for (let i = 1; i < P.length - 1; i++) {
+        NbufVal += +((i * P[i + 1]) / sumTime).toFixed(3);
+      }
       P0.textContent = `${+((P[0] / sumTime) * 100).toFixed(2)}%`;
       P1.textContent = `${+((P[1] / sumTime) * 100).toFixed(2)}%`;
       P2.textContent = `${+((P[2] / sumTime) * 100).toFixed(2)}%`;
       P3.textContent = `${+((P[3] / sumTime) * 100).toFixed(2)}%`;
       P4.textContent = `${+((P[4] / sumTime) * 100).toFixed(2)}%`;
       Potk.textContent = `${+((Notk / Nsum) * 100).toFixed(2)}%`;
-      const Qvalue = (Nobr / Nsum) * 100;
-      Q.textContent = `${+Qvalue.toFixed(2)}%`;
+      Q.textContent = `${+(Qvalue * 100).toFixed(2)}%`;
       S.textContent = +(Nobr / maxTime).toFixed(2);
-      const NbufVal = (1 * P[2] + 2 * P[3] + 3 * P[4]) / (sumTime - P[0]);
       Nbuf.textContent = NbufVal;
-      Nprog.textContent = NbufVal + 1;
-      Tprog.textContent = (Qvalue / mu + NbufVal / lambd) / sumTime;
-      Tbuf.textContent = NbufVal / lambd / sumTime;
+      Nprog.textContent = NbufVal + P[1] / sumTime;
+      Tprog.textContent = Qvalue / mu + NbufVal / lambda;
+      Tbuf.textContent = NbufVal / lambda;
     },
   });
 });
